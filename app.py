@@ -47,6 +47,8 @@ RECEIVER_EMAIL = "naruto982010@gmail.com"
 # Alert tracking (prevent spam)
 last_alert_time = 0
 ALERT_COOLDOWN = 30  # seconds between alerts
+# Temporary test-mail button expiry (timestamp)
+TEST_BUTTON_EXPIRY = 0
 
 def send_email_alert(image_path, person_name):
     """Send email with detected person image"""
@@ -88,6 +90,66 @@ def health():
 @app.route('/known_faces/<path:filename>')
 def known_faces_file(filename):
     return send_from_directory(KNOWN_DIR, filename)
+
+
+@app.route('/enable_test_mail', methods=['POST'])
+def enable_test_mail():
+    """Enable the Send Test Email button for 20 minutes."""
+    global TEST_BUTTON_EXPIRY
+    expiry = datetime.now().timestamp() + (20 * 60)
+    TEST_BUTTON_EXPIRY = expiry
+    return jsonify({'expiry': expiry})
+
+
+@app.route('/test_mail_status', methods=['GET'])
+def test_mail_status():
+    """Return current expiry timestamp (0 if not enabled)."""
+    return jsonify({'expiry': TEST_BUTTON_EXPIRY})
+
+
+@app.route('/send_test_mail', methods=['POST'])
+def send_test_mail():
+    """Send a test email with a small generated image if the temporary button is enabled."""
+    try:
+        if TEST_BUTTON_EXPIRY <= datetime.now().timestamp():
+            return jsonify({'error': 'test button expired'}), 403
+
+        # create a small test image
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        test_path = os.path.join(STATIC_DIR, f'test_email_{timestamp}.jpg')
+        try:
+            import numpy as _np
+            import cv2 as _cv2
+            img = _np.full((200, 300, 3), 240, dtype=_np.uint8)
+            _cv2.putText(img, 'ESP32 Test Email', (8, 100), _cv2.FONT_HERSHEY_SIMPLEX, 0.7, (20, 20, 20), 2)
+            _cv2.imwrite(test_path, img)
+        except Exception as e:
+            print(f'Could not create test image: {e}')
+            test_path = None
+
+        # Send email (attach image if created)
+        success = False
+        if test_path and os.path.exists(test_path):
+            success = send_email_alert(test_path, 'TestUser')
+        else:
+            # fallback: send text-only email
+            try:
+                msg = EmailMessage()
+                msg['Subject'] = '🔔 Test email from ESP32 Face Server'
+                msg['From'] = EMAIL_ADDRESS
+                msg['To'] = RECEIVER_EMAIL
+                msg.set_content('This is a test email from your ESP32 Face Server.')
+                with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
+                    smtp.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
+                    smtp.send_message(msg)
+                success = True
+            except Exception as e:
+                print(f'Failed sending fallback test email: {e}')
+                success = False
+
+        return jsonify({'sent': bool(success)})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/upload', methods=['POST'])
@@ -287,3 +349,31 @@ if __name__ == '__main__':
     print(f"Starting server on http://0.0.0.0:{port}")
     print("=" * 50)
     app.run(host='0.0.0.0', port=port)
+
+#include <WiFiClientSecure.h>
+#include <HTTPClient.h>
+
+// serverUrl MUST be https://...
+const char* serverUrl = "https://your-project.up.railway.app/upload";
+
+WiFiClientSecure client;
+client.setInsecure(); // Accept Railway TLS (dev toleration). For production, use root CA/fingerprint.
+
+HTTPClient https;
+https.begin(client, serverUrl);
+https.addHeader("Content-Type", "application/octet-stream");
+
+// fb is your camera frame buffer (fb->buf, fb->len)
+int response = https.POST(fb->buf, fb->len);
+Serial.printf("Upload response: %d\n", response);
+
+https.end();
+
+config.pixel_format = PIXFORMAT_JPEG;
+config.frame_size = FRAMESIZE_VGA;   // NOT UXGA — use VGA or smaller
+config.jpeg_quality = 12;            // larger number => more compression => smaller bytes
+config.fb_count = 1;                 // save memory
+
+// after init, ensure sensor framesize:
+sensor_t * s = esp_camera_sensor_get();
+s->set_framesize(s, FRAMESIZE_VGA);

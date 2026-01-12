@@ -207,6 +207,11 @@
             <div class="status" role="status" aria-live="polite">
                 ✅ Server Running - Ready to detect faces
             </div>
+            <div style="margin-top:12px; display:flex; gap:8px; align-items:center;">
+                <button id="enableTestBtn" type="button">🔔 Enable Test Mail (20m)</button>
+                <button id="sendTestBtn" type="button" style="display:none; background:#2196f3;">✉️ Send Test Email</button>
+                <span id="testTimer" style="color:#666; font-size:13px;"></span>
+            </div>
             <p style="margin-top: 15px; color: #666; font-size: 14px;">
                 <strong>ESP32 Upload URL:</strong><br>
                 <code style="background: #f0f0f0; padding: 5px 10px; border-radius: 3px; display: inline-block; margin-top: 5px;">
@@ -240,6 +245,62 @@
                 if (!link) return;
                 const ok = confirm('Delete this registered face? This action cannot be undone.');
                 if (!ok) e.preventDefault();
+            });
+        })();
+
+        // Temporary Test Mail UI
+        (function(){
+            const enableBtn = document.getElementById('enableTestBtn');
+            const sendBtn = document.getElementById('sendTestBtn');
+            const timerSpan = document.getElementById('testTimer');
+            let expiry = 0;
+            let timerInterval = null;
+
+            function updateUI(){
+                const now = Date.now()/1000;
+                if (expiry && expiry > now){
+                    sendBtn.style.display = 'inline-block';
+                    enableBtn.style.display = 'none';
+                    const remaining = Math.max(0, Math.floor(expiry - now));
+                    const mins = Math.floor(remaining/60);
+                    const secs = remaining % 60;
+                    timerSpan.textContent = `Expires in ${mins}m ${secs}s`;
+                } else {
+                    sendBtn.style.display = 'none';
+                    enableBtn.style.display = 'inline-block';
+                    timerSpan.textContent = '';
+                }
+            }
+
+            function startTimer(){
+                if (timerInterval) clearInterval(timerInterval);
+                timerInterval = setInterval(()=>{
+                    updateUI();
+                    if (!expiry || expiry <= Date.now()/1000) clearInterval(timerInterval);
+                }, 1000);
+            }
+
+            // fetch current status on load
+            fetch('/test_mail_status').then(r=>r.json()).then(j=>{
+                expiry = j.expiry || 0;
+                updateUI();
+                if (expiry && expiry > Date.now()/1000) startTimer();
+            }).catch(()=>{});
+
+            enableBtn.addEventListener('click', function(){
+                fetch('/enable_test_mail', {method:'POST'}).then(r=>r.json()).then(j=>{
+                    expiry = j.expiry || 0;
+                    updateUI();
+                    startTimer();
+                }).catch(err=>{ alert('Failed to enable test button'); console.error(err); });
+            });
+
+            sendBtn.addEventListener('click', function(){
+                sendBtn.disabled = true;
+                fetch('/send_test_mail', {method:'POST'}).then(r=>r.json()).then(j=>{
+                    sendBtn.disabled = false;
+                    if (j.sent) alert('Test email sent'); else alert('Failed sending test email');
+                }).catch(e=>{ sendBtn.disabled = false; alert('Error sending'); console.error(e); });
             });
         })();
     </script>
