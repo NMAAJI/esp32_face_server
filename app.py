@@ -5,15 +5,29 @@ import os
 from datetime import datetime
 import smtplib
 from email.message import EmailMessage
-# DeepFace is optional (heavy dependency). Try to import it; if unavailable,
-# fall back to `face_recognition` based verification (lighter if already installed).
+# Detection/verification backends. Try to use DeepFace first, then face_recognition,
+# then a lightweight perceptual-hash (imagehash) fallback so the app can run
+# in environments (like Railway) without heavy system libraries.
 DEEPFACE_AVAILABLE = False
+FACE_REC_AVAILABLE = False
+IMAGEHASH_AVAILABLE = False
 try:
     from deepface import DeepFace
     DEEPFACE_AVAILABLE = True
-except Exception:
+except Exception as _e:
     DEEPFACE_AVAILABLE = False
-    import face_recognition
+    try:
+        import face_recognition
+        FACE_REC_AVAILABLE = True
+    except Exception as _e2:
+        FACE_REC_AVAILABLE = False
+        try:
+            from PIL import Image
+            import imagehash
+            IMAGEHASH_AVAILABLE = True
+        except Exception:
+            IMAGEHASH_AVAILABLE = False
+
 
 
 app = Flask(__name__, static_folder="static")
@@ -109,6 +123,7 @@ def upload_image():
         
         # Helper to verify two image files. Returns dict with 'verified' (bool) and 'distance' (float)
         def verify_images(img1_path, img2_path):
+            # Try DeepFace first
             if DEEPFACE_AVAILABLE:
                 try:
                     result = DeepFace.verify(
@@ -118,13 +133,21 @@ def upload_image():
                         detector_backend='opencv',
                         enforce_detection=False
                     )
-                    # DeepFace returns 'distance' where smaller is better
-                    return {'verified': result.get('verified', False), 'distance': result.get('distance', 1.0)}
+                    dist = result.get('distance', 1.0)
+                    # normalize/clip distance to 0..1 for consistency
+                    try:
+                        dist = float(dist)
+                        if dist > 1.0:
+                            dist = 1.0
+                    except Exception:
+                        dist = 1.0
+                    return {'verified': result.get('verified', False), 'distance': dist}
                 except Exception as e:
                     print(f"DeepFace verification error: {e}")
                     return {'verified': False, 'distance': 1.0}
-            else:
-                # Fallback using face_recognition
+
+            # Next try face_recognition (may be unavailable on some hosts)
+            if FACE_REC_AVAILABLE:
                 try:
                     img1 = face_recognition.load_image_file(img1_path)
                     img2 = face_recognition.load_image_file(img2_path)
@@ -132,14 +155,32 @@ def upload_image():
                     enc2 = face_recognition.face_encodings(img2)
                     if not enc1 or not enc2:
                         return {'verified': False, 'distance': 1.0}
-                    # use first face encoding from each
                     d = float(face_recognition.face_distance([enc2[0]], enc1[0])[0])
-                    # threshold: 0.6 is common for face_recognition
                     verified = d <= 0.6
-                    return {'verified': verified, 'distance': d}
+                    return {'verified': verified, 'distance': max(0.0, min(1.0, d))}
                 except Exception as e:
                     print(f"face_recognition verification error: {e}")
                     return {'verified': False, 'distance': 1.0}
+
+            # Lightweight fallback: perceptual hash (imagehash)
+            if IMAGEHASH_AVAILABLE:
+                try:
+                    from PIL import Image
+                    import imagehash
+                    h1 = imagehash.phash(Image.open(img1_path))
+                    h2 = imagehash.phash(Image.open(img2_path))
+                    d = int(h1 - h2)  # hamming distance, e.g. 0..64
+                    max_bits = h1.hash.size
+                    norm = d / float(max_bits) if max_bits else 1.0
+                    # threshold: allow small hamming distances
+                    verified = d <= 10
+                    return {'verified': verified, 'distance': max(0.0, min(1.0, norm))}
+                except Exception as e:
+                    print(f"imagehash verification error: {e}")
+                    return {'verified': False, 'distance': 1.0}
+
+            # No verifier available
+            return {'verified': False, 'distance': 1.0}
 
         # Check each known face
         for known_face in known_faces:
@@ -147,34 +188,27 @@ def upload_image():
             person_name = os.path.splitext(known_face)[0]
             
             try:
-                # Verify face using DeepFace
-                result = DeepFace.verify(
-                    img1_path=temp_path,
-                    img2_path=known_path,
-                    model_name='VGG-Face',
-                    detector_backend='opencv',
-                    enforce_detection=False
-                )
-                
-                # If match found
-                if result['verified']:
+                # Verify face using available verifier (DeepFace / face_recognition / imagehash)
+                result = verify_images(temp_path, known_path)
+
+                if result.get('verified'):
                     print(f"🚨 MATCH FOUND: {person_name}")
-                    
+
                     # Check cooldown
                     current_time = datetime.now().timestamp()
                     if current_time - last_alert_time > ALERT_COOLDOWN:
                         # Save alert image
                         alert_path = os.path.join(STATIC_DIR, f"alert_{person_name}_{timestamp}.jpg")
                         cv2.imwrite(alert_path, frame)
-                        
+
                         # Send email
                         send_email_alert(alert_path, person_name)
                         last_alert_time = current_time
-                        
+
                         return jsonify({
                             "status": "match",
                             "person": person_name,
-                            "confidence": float(1 - result['distance']),
+                            "confidence": float(max(0.0, min(1.0, 1 - result.get('distance', 1.0)))),
                             "alert_sent": True
                         })
                     else:
@@ -184,7 +218,7 @@ def upload_image():
                             "alert_sent": False,
                             "message": "Cooldown active"
                         })
-                        
+
             except Exception as e:
                 print(f"Error checking {known_face}: {e}")
                 continue
