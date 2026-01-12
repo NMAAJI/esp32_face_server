@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="description" content="ESP32 face recognition dashboard - upload and manage wanted person images, view server status and registered faces.">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESP32 Face Recognition</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        h1 {
+            color: #667eea;
+            text-align: center;
+            margin-bottom: 10px;
+            font-size: 2em;
+        }
+        .subtitle {
+            text-align: center;
+            color: #444;
+            margin-bottom: 30px;
+        }
+        .section {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+        .section h2 {
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 1.3em;
+            display: flex;
+            align-items: center;
+        }
+        .section h2::before {
+            content: "📸";
+            margin-right: 10px;
+        }
+        form {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        input[type="file"] {
+            flex: 1;
+            padding: 10px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            background: white;
+        }
+        input[type="text"] {
+            flex: 1;
+            padding: 10px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+        button {
+            padding: 10px 20px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
+            transition: all 0.3s;
+        }
+        input:focus, button:focus {
+            outline: 3px solid rgba(102,126,234,0.25);
+            outline-offset: 2px;
+        }
+        button:hover {
+            background: #764ba2;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+        .face-list {
+            list-style: none;
+        }
+        .face-item {
+            background: white;
+            padding: 15px;
+            margin-bottom: 10px;
+            border-radius: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        .face-item .meta { display:flex; align-items:center; gap:12px; }
+        .face-thumb { width:56px; height:56px; object-fit:cover; border-radius:8px; box-shadow:0 1px 4px rgba(0,0,0,0.08); }
+        .face-name {
+            font-weight: bold;
+            color: #333;
+        }
+        .delete-btn {
+            background: #ff4757;
+            padding: 5px 15px;
+            font-size: 12px;
+        }
+        .delete-btn:hover {
+            background: #ff3838;
+        }
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: #999;
+        }
+        .status {
+            background: #e8f5e9;
+            color: #2e7d32;
+            padding: 10px;
+            border-radius: 5px;
+            margin-top: 10px;
+            text-align: center;
+            font-weight: bold;
+        }
+        .info-box {
+            background: #e3f2fd;
+            border-left: 4px solid #2196f3;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 5px;
+        }
+        .info-box h3 {
+            color: #1976d2;
+            margin-bottom: 5px;
+        }
+        .info-box p {
+            color: #555;
+            line-height: 1.5;
+        }
+        .sr-only { position:absolute; left:-10000px; top:auto; width:1px; height:1px; overflow:hidden; }
+        #preview img { max-width:80px; border-radius:8px; margin-top:8px; display:inline-block; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔒 ESP32 Face Recognition System</h1>
+        <p class="subtitle">Upload wanted person images and manage detection</p>
+
+        <div class="info-box">
+            <h3>ℹ️ How It Works</h3>
+            <p>1. Upload a clear face photo of the wanted person<br>
+            2. ESP32-CAM will detect when this person appears<br>
+            3. You'll receive an email alert with captured image</p>
+        </div>
+
+        <div class="section">
+            <h2>Upload Wanted Person</h2>
+            <form action="/register" method="post" enctype="multipart/form-data">
+                <!-- If your app uses CSRF protection, include the CSRF token server-side (e.g., Flask-WTF's csrf_token()). -->
+                <label for="name" class="sr-only">Person name</label>
+                <input id="name" type="text" name="name" placeholder="Person name (e.g., John)" required aria-label="Person name">
+
+                <label for="image" class="sr-only">Face image</label>
+                <input id="image" type="file" name="image" accept="image/*" required aria-describedby="imageHelp">
+                <div id="preview" aria-hidden="true"></div>
+                <div id="imageHelp" style="display:none">Choose a clear photo with only the person's face visible.</div>
+
+                <button type="submit">➕ Add Face</button>
+            </form>
+        </div>
+
+        <div class="section">
+            <h2 style="margin-bottom: 20px;">📋 Registered Faces ({{ faces|length }})</h2>
+            {% if faces %}
+                <ul class="face-list" role="list">
+                    {% for face in faces %}
+                    <li class="face-item">
+                        <div class="meta">
+                            <img src="/known_faces/{{ face }}" alt="Face of {{ face.replace('.jpg','').replace('.jpeg','').replace('.png','') }}" class="face-thumb">
+                            <span class="face-name">👤 {{ face.replace('.jpg', '').replace('.jpeg', '').replace('.png', '') }}</span>
+                        </div>
+                        <div>
+                            <a href="/delete/{{ face }}" class="delete-link" data-face="{{ face }}">
+                                <button type="button" class="delete-btn">🗑️ Delete</button>
+                            </a>
+                        </div>
+                    </li>
+                    {% endfor %}
+                </ul>
+            {% else %}
+                <div class="empty-state">
+                    <p>No faces registered yet.</p>
+                    <p style="font-size: 12px; margin-top: 10px;">Upload your first wanted person above.</p>
+                </div>
+            {% endif %}
+        </div>
+
+        <div class="section">
+            <h2>🚀 Server Status</h2>
+            <div class="status" role="status" aria-live="polite">
+                ✅ Server Running - Ready to detect faces
+            </div>
+            <p style="margin-top: 15px; color: #666; font-size: 14px;">
+                <strong>ESP32 Upload URL:</strong><br>
+                <code style="background: #f0f0f0; padding: 5px 10px; border-radius: 3px; display: inline-block; margin-top: 5px;">
+                    http://YOUR_IP:5000/upload
+                </code>
+            </p>
+        </div>
+    </div>
+    <script>
+        // Image preview for upload
+        (function(){
+            const input = document.getElementById('image');
+            const preview = document.getElementById('preview');
+            if (input && preview) {
+                input.addEventListener('change', function(e){
+                    preview.innerHTML = '';
+                    const file = this.files && this.files[0];
+                    if (!file) return;
+                    if (!file.type.startsWith('image/')) return;
+                    const img = document.createElement('img');
+                    img.alt = 'Selected image preview';
+                    img.src = URL.createObjectURL(file);
+                    img.onload = () => URL.revokeObjectURL(img.src);
+                    preview.appendChild(img);
+                });
+            }
+
+            // Delete confirmation
+            document.addEventListener('click', function(e){
+                const link = e.target.closest && e.target.closest('.delete-link');
+                if (!link) return;
+                const ok = confirm('Delete this registered face? This action cannot be undone.');
+                if (!ok) e.preventDefault();
+            });
+        })();
+    </script>
+</body>
+</html>
