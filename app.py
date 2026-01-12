@@ -5,7 +5,16 @@ import os
 from datetime import datetime
 import smtplib
 from email.message import EmailMessage
-from deepface import DeepFace
+# DeepFace is optional (heavy dependency). Try to import it; if unavailable,
+# fall back to `face_recognition` based verification (lighter if already installed).
+DEEPFACE_AVAILABLE = False
+try:
+    from deepface import DeepFace
+    DEEPFACE_AVAILABLE = True
+except Exception:
+    DEEPFACE_AVAILABLE = False
+    import face_recognition
+
 
 app = Flask(__name__, static_folder="static")
 
@@ -98,6 +107,40 @@ def upload_image():
             print("⚠️ No known faces in database")
             return jsonify({"status": "no_known_faces"})
         
+        # Helper to verify two image files. Returns dict with 'verified' (bool) and 'distance' (float)
+        def verify_images(img1_path, img2_path):
+            if DEEPFACE_AVAILABLE:
+                try:
+                    result = DeepFace.verify(
+                        img1_path=img1_path,
+                        img2_path=img2_path,
+                        model_name='VGG-Face',
+                        detector_backend='opencv',
+                        enforce_detection=False
+                    )
+                    # DeepFace returns 'distance' where smaller is better
+                    return {'verified': result.get('verified', False), 'distance': result.get('distance', 1.0)}
+                except Exception as e:
+                    print(f"DeepFace verification error: {e}")
+                    return {'verified': False, 'distance': 1.0}
+            else:
+                # Fallback using face_recognition
+                try:
+                    img1 = face_recognition.load_image_file(img1_path)
+                    img2 = face_recognition.load_image_file(img2_path)
+                    enc1 = face_recognition.face_encodings(img1)
+                    enc2 = face_recognition.face_encodings(img2)
+                    if not enc1 or not enc2:
+                        return {'verified': False, 'distance': 1.0}
+                    # use first face encoding from each
+                    d = float(face_recognition.face_distance([enc2[0]], enc1[0])[0])
+                    # threshold: 0.6 is common for face_recognition
+                    verified = d <= 0.6
+                    return {'verified': verified, 'distance': d}
+                except Exception as e:
+                    print(f"face_recognition verification error: {e}")
+                    return {'verified': False, 'distance': 1.0}
+
         # Check each known face
         for known_face in known_faces:
             known_path = os.path.join(KNOWN_DIR, known_face)
