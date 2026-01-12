@@ -9,10 +9,17 @@ from email.message import EmailMessage
 # Railway-safe AI configuration: prefer lightweight phash-only verification
 DEEPFACE_AVAILABLE = False
 FACE_REC_AVAILABLE = False
-IMAGEHASH_AVAILABLE = True
+IMAGEHASH_AVAILABLE = False
 
-from PIL import Image
-import imagehash
+# Try to import lightweight perceptual-hash verifier (optional)
+try:
+    from PIL import Image  # pillow
+    import imagehash
+    IMAGEHASH_AVAILABLE = True
+    print("✅ imagehash available: using phash fallback verification")
+except Exception as e:
+    IMAGEHASH_AVAILABLE = False
+    print(f"⚠️ imagehash not available, skipping phash verifier: {e}")
 
 # AI timing control
 LAST_AI_CHECK = 0
