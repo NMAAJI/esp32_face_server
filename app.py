@@ -186,6 +186,12 @@ def upload_image():
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         temp_path = os.path.join(STATIC_DIR, f"temp_{timestamp}.jpg")
         cv2.imwrite(temp_path, frame)
+        # Update latest frame for live feed (overwrites)
+        try:
+            latest_path = os.path.join(STATIC_DIR, 'latest.jpg')
+            cv2.imwrite(latest_path, frame)
+        except Exception as e:
+            print(f"Could not write latest frame: {e}")
         
         # Check if there are known faces
         known_faces = [f for f in os.listdir(KNOWN_DIR) if f.endswith(('.jpg', '.jpeg', '.png'))]

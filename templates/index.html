@@ -208,6 +208,15 @@
                 ✅ Server Running - Ready to detect faces
             </div>
             <div style="margin-top:12px; display:flex; gap:8px; align-items:center;">
+                <div id="liveFeedWrap" style="display:flex; gap:12px; align-items:center;">
+                    <img id="liveFeed" src="/static/latest.jpg" alt="Live feed" style="width:220px; height:160px; object-fit:cover; border-radius:6px; border:1px solid #eee;">
+                    <div style="display:flex; flex-direction:column; gap:6px;">
+                        <small style="color:#666;">Live feed (auto-updates)</small>
+                        <button id="refreshLive" type="button" style="padding:6px 10px; font-size:12px;">Refresh Now</button>
+                    </div>
+                </div>
+            </div>
+            <div style="margin-top:12px; display:flex; gap:8px; align-items:center;">
                 <button id="enableTestBtn" type="button">🔔 Enable Test Mail (20m)</button>
                 <button id="sendTestBtn" type="button" style="display:none; background:#2196f3;">✉️ Send Test Email</button>
                 <span id="testTimer" style="color:#666; font-size:13px;"></span>
@@ -302,6 +311,17 @@
                     if (j.sent) alert('Test email sent'); else alert('Failed sending test email');
                 }).catch(e=>{ sendBtn.disabled = false; alert('Error sending'); console.error(e); });
             });
+        })();
+
+        // Live feed auto-refresh
+        (function(){
+            const img = document.getElementById('liveFeed');
+            const btn = document.getElementById('refreshLive');
+            function refresh(){
+                img.src = '/static/latest.jpg?ts=' + Date.now();
+            }
+            btn.addEventListener('click', refresh);
+            setInterval(refresh, 2000);
         })();
     </script>
 </body>
