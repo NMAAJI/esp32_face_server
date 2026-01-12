@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, render_template, redirect
+from flask import Flask, request, jsonify, render_template, redirect, send_from_directory
 import cv2
 import numpy as np
 import os
@@ -7,7 +7,8 @@ import smtplib
 from email.message import EmailMessage
 from deepface import DeepFace
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder="static")
+
 
 # Directories
 KNOWN_DIR = "known_faces"
@@ -54,6 +55,17 @@ def index():
     """Home page with UI"""
     known_faces = [f for f in os.listdir(KNOWN_DIR) if f.endswith(('.jpg', '.jpeg', '.png'))]
     return render_template('index.html', faces=known_faces)
+
+
+@app.route('/health')
+def health():
+    """Simple health/status endpoint for quick checks"""
+    return "ESP32 Face Server Running"
+
+@app.route('/known_faces/<path:filename>')
+def known_faces_file(filename):
+    return send_from_directory(KNOWN_DIR, filename)
+
 
 @app.route('/upload', methods=['POST'])
 def upload_image():
