@@ -5,6 +5,7 @@ import os
 from datetime import datetime
 import smtplib
 from email.message import EmailMessage
+
 # Detection/verification backends. Try to use DeepFace first, then face_recognition,
 # then a lightweight perceptual-hash (imagehash) fallback so the app can run
 # in environments (like Railway) without heavy system libraries.
