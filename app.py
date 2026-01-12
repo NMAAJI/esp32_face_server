@@ -357,23 +357,18 @@ if __name__ == '__main__':
 const char* serverUrl = "https://your-project.up.railway.app/upload";
 
 WiFiClientSecure client;
-client.setInsecure(); // Accept Railway TLS (dev toleration). For production, use root CA/fingerprint.
-
-HTTPClient https;
-https.begin(client, serverUrl);
-https.addHeader("Content-Type", "application/octet-stream");
-
-// fb is your camera frame buffer (fb->buf, fb->len)
-int response = https.POST(fb->buf, fb->len);
-Serial.printf("Upload response: %d\n", response);
-
-https.end();
-
-config.pixel_format = PIXFORMAT_JPEG;
-config.frame_size = FRAMESIZE_VGA;   // NOT UXGA — use VGA or smaller
-config.jpeg_quality = 12;            // larger number => more compression => smaller bytes
-config.fb_count = 1;                 // save memory
-
-// after init, ensure sensor framesize:
-sensor_t * s = esp_camera_sensor_get();
-s->set_framesize(s, FRAMESIZE_VGA);
+# NOTE: The following ESP32/C++ example code was intentionally removed.
+# If you copy ESP32 upload code into this repository, keep it in your
+# device firmware source (Arduino/C++) — do NOT paste C++ into this Python app.
+#
+# Recommended ESP32 settings (for developer reference):
+# - Use HTTPS with WiFiClientSecure and `client.setInsecure()` for quick tests.
+# - Use smaller camera frames: FRAMESIZE_VGA or lower, jpeg_quality ~12, fb_count = 1.
+# - Example (Arduino):
+#   WiFiClientSecure client;
+#   client.setInsecure();
+#   HTTPClient https;
+#   https.begin(client, "https://your-project.up.railway.app/upload");
+#   https.addHeader("Content-Type", "application/octet-stream");
+#   int response = https.POST(fb->buf, fb->len);
+#   https.end();
