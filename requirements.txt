@@ -1,7 +1,6 @@
 flask
-opencv-python-headless
 numpy
-deepface
-tensorflow-cpu
 pillow
+opencv-python-headless
+face-recognition
 gunicorn
