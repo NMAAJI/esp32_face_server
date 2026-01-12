@@ -6,28 +6,17 @@ from datetime import datetime
 import smtplib
 from email.message import EmailMessage
 
-# Detection/verification backends. Try to use DeepFace first, then face_recognition,
-# then a lightweight perceptual-hash (imagehash) fallback so the app can run
-# in environments (like Railway) without heavy system libraries.
+# Railway-safe AI configuration: prefer lightweight phash-only verification
 DEEPFACE_AVAILABLE = False
 FACE_REC_AVAILABLE = False
-IMAGEHASH_AVAILABLE = False
-try:
-    from deepface import DeepFace
-    DEEPFACE_AVAILABLE = True
-except Exception as _e:
-    DEEPFACE_AVAILABLE = False
-    try:
-        import face_recognition
-        FACE_REC_AVAILABLE = True
-    except Exception as _e2:
-        FACE_REC_AVAILABLE = False
-        try:
-            from PIL import Image
-            import imagehash
-            IMAGEHASH_AVAILABLE = True
-        except Exception:
-            IMAGEHASH_AVAILABLE = False
+IMAGEHASH_AVAILABLE = True
+
+from PIL import Image
+import imagehash
+
+# AI timing control
+LAST_AI_CHECK = 0
+AI_INTERVAL = 2.5  # seconds (controls AI frequency)
 
 
 
@@ -40,10 +29,10 @@ STATIC_DIR = "static"
 os.makedirs(KNOWN_DIR, exist_ok=True)
 os.makedirs(STATIC_DIR, exist_ok=True)
 
-# Email configuration (FILL THESE IN!)
-EMAIL_ADDRESS = "n.maajid982010@gmail.com"
-EMAIL_PASSWORD = "vjiv jzhm ppgl jlxw"
-RECEIVER_EMAIL = "naruto982010@gmail.com"
+# Email configuration (use environment variables in production)
+EMAIL_ADDRESS = os.getenv("EMAIL_ADDRESS")
+EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
+RECEIVER_EMAIL = os.getenv("RECEIVER_EMAIL")
 
 # Alert tracking (prevent spam)
 last_alert_time = 0
@@ -261,6 +250,16 @@ def upload_image():
             # No verifier available
             return {'verified': False, 'distance': 1.0}
 
+        # Throttle AI checks to reduce CPU on hosted envs.
+        global LAST_AI_CHECK
+        now = datetime.now().timestamp()
+
+        # Always update live view, but run AI only every AI_INTERVAL seconds
+        if now - LAST_AI_CHECK < AI_INTERVAL:
+            return jsonify({"status": "live_only"})
+
+        LAST_AI_CHECK = now
+
         # Check each known face
         for known_face in known_faces:
             known_path = os.path.join(KNOWN_DIR, known_face)
@@ -370,6 +369,44 @@ if __name__ == '__main__':
     print(f"Starting server on http://0.0.0.0:{port}")
     print("=" * 50)
     app.run(host='0.0.0.0', port=port)
+
+
+@app.route('/live')
+def live():
+        return """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>ESP32 Live Camera</title>
+        </head>
+        <body>
+            <h2>📡 ESP32 Near-Live Camera</h2>
+            <img id="cam" src="/static/latest.jpg" width="480">
+            <script>
+                setInterval(() => {
+                    const img = document.getElementById("cam");
+                    img.src = "/static/latest.jpg?t=" + Date.now();
+                }, 400);
+            </script>
+        </body>
+        </html>
+            <script>
+                // Fullscreen capability for live view
+                function enterFull(el){
+                    if (!el) return;
+                    if (el.requestFullscreen) el.requestFullscreen();
+                    else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+                    else if (el.mozRequestFullScreen) el.mozRequestFullScreen();
+                    else if (el.msRequestFullscreen) el.msRequestFullscreen();
+                }
+                document.addEventListener('keydown', function(e){
+                    // Press 'f' to fullscreen the image
+                    if (e.key === 'f'){
+                        enterFull(document.getElementById('cam'));
+                    }
+                });
+            </script>
+            """
 
 # Note: The following lines were C/C++ (ESP32) snippets mistakenly pasted here.
 # They have been removed. Keep firmware code in your ESP32 project, not in

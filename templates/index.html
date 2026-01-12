@@ -9,20 +9,22 @@
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: #ffffff; /* full white background */
             min-height: 100vh;
             padding: 20px;
+            -webkit-font-smoothing:antialiased;
+            -moz-osx-font-smoothing:grayscale;
         }
         .container {
-            max-width: 800px;
+            max-width: 940px;
             margin: 0 auto;
-            background: white;
-            border-radius: 20px;
+            background: #ffffff;
+            border-radius: 12px;
             padding: 30px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            box-shadow: 0 6px 20px rgba(0,0,0,0.06);
         }
         h1 {
-            color: #667eea;
+            color: #222;
             text-align: center;
             margin-bottom: 10px;
             font-size: 2em;
@@ -33,9 +35,9 @@
             margin-bottom: 30px;
         }
         .section {
-            background: #f8f9fa;
+            background: #fbfbfb;
             padding: 20px;
-            border-radius: 10px;
+            border-radius: 8px;
             margin-bottom: 20px;
         }
         .section h2 {
@@ -53,31 +55,33 @@
             display: flex;
             gap: 10px;
             flex-wrap: wrap;
+            align-items: center;
         }
         input[type="file"] {
-            flex: 1;
+            flex: 1 1 220px;
             padding: 10px;
-            border: 2px solid #ddd;
-            border-radius: 5px;
+            border: 2px solid #eee;
+            border-radius: 6px;
             background: white;
         }
         input[type="text"] {
-            flex: 1;
+            flex: 1 1 200px;
             padding: 10px;
-            border: 2px solid #ddd;
-            border-radius: 5px;
+            border: 2px solid #eee;
+            border-radius: 6px;
             font-size: 14px;
+            background: #fff;
         }
         button {
-            padding: 10px 20px;
-            background: #667eea;
+            padding: 10px 18px;
+            background: #4b7bec;
             color: white;
             border: none;
-            border-radius: 5px;
+            border-radius: 6px;
             cursor: pointer;
             font-size: 14px;
-            font-weight: bold;
-            transition: all 0.3s;
+            font-weight: 600;
+            transition: transform 0.12s ease, box-shadow 0.12s ease;
         }
         input:focus, button:focus {
             outline: 3px solid rgba(102,126,234,0.25);
@@ -92,14 +96,14 @@
             list-style: none;
         }
         .face-item {
-            background: white;
-            padding: 15px;
+            background: #fff;
+            padding: 12px;
             margin-bottom: 10px;
             border-radius: 8px;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            box-shadow: 0 1px 4px rgba(28,31,36,0.04);
         }
         .face-item .meta { display:flex; align-items:center; gap:12px; }
         .face-thumb { width:56px; height:56px; object-fit:cover; border-radius:8px; box-shadow:0 1px 4px rgba(0,0,0,0.08); }
@@ -146,6 +150,18 @@
         }
         .sr-only { position:absolute; left:-10000px; top:auto; width:1px; height:1px; overflow:hidden; }
         #preview img { max-width:80px; border-radius:8px; margin-top:8px; display:inline-block; }
+        /* Responsive adjustments */
+        @media (max-width: 700px) {
+            .container { margin: 0 12px; padding: 18px; border-radius: 10px; }
+            h1 { font-size: 1.4rem; }
+            .section { padding: 14px; }
+            form { flex-direction: column; align-items: stretch; }
+            input[type="text"], input[type="file"], button { width: 100%; }
+            .face-item { flex-direction: column; align-items: flex-start; gap: 8px; }
+            .face-thumb { width:48px; height:48px; }
+            #liveFeed { width: 100%; height: auto; }
+            #liveFeedWrap { flex-direction: column; align-items: stretch; }
+        }
     </style>
 </head>
 <body>
@@ -210,10 +226,13 @@
             <div style="margin-top:12px; display:flex; gap:8px; align-items:center;">
                 <div id="liveFeedWrap" style="display:flex; gap:12px; align-items:center;">
                     <img id="liveFeed" src="/static/latest.jpg" alt="Live feed" style="width:220px; height:160px; object-fit:cover; border-radius:6px; border:1px solid #eee;">
-                    <div style="display:flex; flex-direction:column; gap:6px;">
-                        <small style="color:#666;">Live feed (auto-updates)</small>
-                        <button id="refreshLive" type="button" style="padding:6px 10px; font-size:12px;">Refresh Now</button>
-                    </div>
+                                        <div style="display:flex; flex-direction:column; gap:6px;">
+                                                <small style="color:#666;">Live feed (auto-updates)</small>
+                                                <div style="display:flex; gap:6px;">
+                                                    <button id="refreshLive" type="button" style="padding:6px 10px; font-size:12px;">Refresh Now</button>
+                                                    <button id="fullscreenLive" type="button" style="padding:6px 10px; font-size:12px;">⤢ Fullscreen</button>
+                                                </div>
+                                        </div>
                 </div>
             </div>
             <div style="margin-top:12px; display:flex; gap:8px; align-items:center;">
@@ -322,6 +341,22 @@
             }
             btn.addEventListener('click', refresh);
             setInterval(refresh, 2000);
+        })();
+
+        // Fullscreen handler for live feed
+        (function(){
+            const fsBtn = document.getElementById('fullscreenLive');
+            const imgWrap = document.getElementById('liveFeedWrap');
+            if (!fsBtn) return;
+            function enterFull(el){
+                if (el.requestFullscreen) el.requestFullscreen();
+                else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+                else if (el.mozRequestFullScreen) el.mozRequestFullScreen();
+                else if (el.msRequestFullscreen) el.msRequestFullscreen();
+            }
+            fsBtn.addEventListener('click', function(){
+                enterFull(imgWrap || document.getElementById('liveFeed'));
+            });
         })();
     </script>
 </body>
