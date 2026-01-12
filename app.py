@@ -350,13 +350,20 @@ if __name__ == '__main__':
     print("=" * 50)
     app.run(host='0.0.0.0', port=port)
 
-#include <WiFiClientSecure.h>
-#include <HTTPClient.h>
-
-// serverUrl MUST be https://...
-const char* serverUrl = "https://your-project.up.railway.app/upload";
-
-WiFiClientSecure client;
+# Note: The following lines were C/C++ (ESP32) snippets mistakenly pasted here.
+# They have been removed. Keep firmware code in your ESP32 project, not in
+# this Python server.
+#
+# Example ESP32 upload (Arduino) for reference only:
+#   // serverUrl MUST be https://...
+#   const char* serverUrl = "https://your-project.up.railway.app/upload";
+#   WiFiClientSecure client;
+#   client.setInsecure();
+#   HTTPClient https;
+#   https.begin(client, serverUrl);
+#   https.addHeader("Content-Type", "application/octet-stream");
+#   int response = https.POST(fb->buf, fb->len);
+#   https.end();
 # NOTE: The following ESP32/C++ example code was intentionally removed.
 # If you copy ESP32 upload code into this repository, keep it in your
 # device firmware source (Arduino/C++) — do NOT paste C++ into this Python app.
