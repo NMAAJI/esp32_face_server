@@ -52,7 +52,10 @@ ALERT_COOLDOWN = 30  # seconds between alerts
 TEST_BUTTON_EXPIRY = 0
 
 def send_email_alert(image_path, person_name):
-    """Send email with detected person image"""
+    """Send email with detected person image.
+
+    Returns (success: bool, error_message: str|None).
+    """
     try:
         msg = EmailMessage()
         msg["Subject"] = f"🚨 ALERT: {person_name} Detected!"
@@ -60,21 +63,23 @@ def send_email_alert(image_path, person_name):
         msg["To"] = RECEIVER_EMAIL
         msg.set_content(f"Wanted person '{person_name}' was detected by ESP32-CAM at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
-        # Attach image
-        with open(image_path, "rb") as f:
-            img_data = f.read()
-            msg.add_attachment(img_data, maintype="image", subtype="jpeg", filename=f"{person_name}_detected.jpg")
+        # Attach image if exists
+        if image_path and os.path.exists(image_path):
+            with open(image_path, "rb") as f:
+                img_data = f.read()
+                msg.add_attachment(img_data, maintype="image", subtype="jpeg", filename=f"{person_name}_detected.jpg")
 
         # Send email
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
             smtp.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
             smtp.send_message(msg)
-        
+
         print(f"✅ Email alert sent for {person_name}")
-        return True
+        return True, None
     except Exception as e:
-        print(f"❌ Email failed: {e}")
-        return False
+        err = str(e)
+        print(f"❌ Email failed: {err}")
+        return False, err
 
 @app.route('/')
 def index():
@@ -130,8 +135,10 @@ def send_test_mail():
 
         # Send email (attach image if created)
         success = False
+        sent = False
+        error = None
         if test_path and os.path.exists(test_path):
-            success = send_email_alert(test_path, 'TestUser')
+            sent, error = send_email_alert(test_path, 'TestUser')
         else:
             # fallback: send text-only email
             try:
@@ -143,12 +150,15 @@ def send_test_mail():
                 with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
                     smtp.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
                     smtp.send_message(msg)
-                success = True
+                sent = True
             except Exception as e:
-                print(f'Failed sending fallback test email: {e}')
-                success = False
+                error = str(e)
+                print(f'Failed sending fallback test email: {error}')
 
-        return jsonify({'sent': bool(success)})
+        response = {'sent': bool(sent)}
+        if error:
+            response['error'] = error
+        return jsonify(response)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -265,14 +275,18 @@ def upload_image():
                         cv2.imwrite(alert_path, frame)
 
                         # Send email
-                        send_email_alert(alert_path, person_name)
-                        last_alert_time = current_time
+                        sent, error = send_email_alert(alert_path, person_name)
+                        if sent:
+                            last_alert_time = current_time
+                        else:
+                            print(f"Test alert send failed: {error}")
 
                         return jsonify({
                             "status": "match",
                             "person": person_name,
                             "confidence": float(max(0.0, min(1.0, 1 - result.get('distance', 1.0)))),
-                            "alert_sent": True
+                            "alert_sent": bool(sent),
+                            **({"error": error} if error else {})
                         })
                     else:
                         return jsonify({
