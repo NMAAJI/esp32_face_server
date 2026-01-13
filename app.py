@@ -194,6 +194,16 @@ def add_face():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route("/register", methods=["POST"])
+def register_face():
+    # This is an alias for /add_face for compatibility
+    return add_face()
+
+@app.route("/upload_known", methods=["POST"])
+def upload_known():
+    # This is an alias for /add_face for compatibility
+    return add_face()
+
 @app.route("/remove_face", methods=["POST"])
 def remove_face():
     try:
