@@ -106,55 +106,54 @@ def index():
     return render_template("index.html", faces=faces)
 
 @app.route("/known_faces/<path:filename>")
-def known_faces_file(filename):
-    return send_from_directory(KNOWN_DIR, filename)
 
-@app.route("/upload", methods=["POST"])
-def upload_image():
+    except Exception as e:
     global last_alert_time
 
     try:
-        img_bytes = request.data
-        if not img_bytes:
+        # 1️⃣ Read image safely
+        if request.data:
+            img_bytes = request.data
+        elif "file" in request.files:
+            img_bytes = request.files["file"].read()
+        else:
             return jsonify({"error": "empty_image"}), 400
 
+        # 2️⃣ Decode image
         npimg = np.frombuffer(img_bytes, np.uint8)
         frame = cv2.imdecode(npimg, cv2.IMREAD_COLOR)
 
         if frame is None:
             return jsonify({"error": "invalid_image"}), 400
 
-        # Save latest frame (for UI)
-        latest_path = os.path.join(STATIC_DIR, "latest.jpg")
-        cv2.imwrite(latest_path, frame)
+        # 3️⃣ Save for UI
+        cv2.imwrite(os.path.join(STATIC_DIR, "latest.jpg"), frame)
 
         if not known_encodings:
             return jsonify({"status": "no_known_faces"}), 200
 
+        if not FACE_REC_AVAILABLE:
+            return jsonify({"error": "face_recognition_not_available"}), 500
+
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-        locations = face_recognition.face_locations(rgb)
+        locations = face_recognition.face_locations(rgb, model="hog")
         if not locations:
             return jsonify({"status": "no_face_detected"}), 200
 
         encodings = face_recognition.face_encodings(rgb, locations)
-        if not encodings:
-            return jsonify({"status": "no_face_detected"}), 200
 
         for enc in encodings:
             matches = face_recognition.compare_faces(
-                known_encodings, enc, tolerance=0.50
+                known_encodings, enc, tolerance=0.5
             )
 
             if True in matches:
-                idx = matches.index(True)
-                name = known_names[idx]
+                name = known_names[matches.index(True)]
 
                 now = datetime.now().timestamp()
                 if now - last_alert_time > ALERT_COOLDOWN:
-                    alert_path = os.path.join(
-                        STATIC_DIR, f"alert_{name}.jpg"
-                    )
+                    alert_path = os.path.join(STATIC_DIR, f"alert_{name}.jpg")
                     cv2.imwrite(alert_path, frame)
                     send_email_alert(alert_path, name)
                     last_alert_time = now
@@ -165,7 +164,10 @@ def upload_image():
 
     except Exception as e:
         print("UPLOAD ERROR:", e)
+        return jsonify({"error": "server_error", "details": str(e)}), 500
+        print("UPLOAD ERROR:", e)
         return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "server_error", "details": str(e)}), 500
 
 @app.route("/register", methods=["POST"])
 def register_face():
