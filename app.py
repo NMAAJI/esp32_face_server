@@ -112,77 +112,60 @@ def known_faces_file(filename):
 @app.route("/upload", methods=["POST"])
 def upload_image():
     global last_alert_time
-    img_bytes = request.data
-    if not img_bytes:
-        return jsonify({"error": "No image"}), 400
 
-    npimg = np.frombuffer(img_bytes, np.uint8)
-    frame = cv2.imdecode(npimg, cv2.IMREAD_COLOR)
-    if frame is None:
-        return jsonify({"error": "Invalid image"}), 400
+    try:
+        img_bytes = request.data
+        if not img_bytes:
+            return jsonify({"error": "empty_image"}), 400
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    temp_path = os.path.join(STATIC_DIR, f"temp_{timestamp}.jpg")
-    cv2.imwrite(temp_path, frame)
+        npimg = np.frombuffer(img_bytes, np.uint8)
+        frame = cv2.imdecode(npimg, cv2.IMREAD_COLOR)
 
-    if not (known_encodings or known_files):
-        print("⚠️ No known faces yet")
-        return jsonify({"status": "no_known_faces"})
+        if frame is None:
+            return jsonify({"error": "invalid_image"}), 400
 
-    # If face_recognition available, prefer the high-quality encoding matcher
-    if FACE_REC_AVAILABLE and known_encodings:
-        try:
-            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            locations = face_recognition.face_locations(rgb)
-            encodings = face_recognition.face_encodings(rgb, locations)
+        # Save latest frame (for UI)
+        latest_path = os.path.join(STATIC_DIR, "latest.jpg")
+        cv2.imwrite(latest_path, frame)
 
-            for enc in encodings:
-                matches = face_recognition.compare_faces(known_encodings, enc, tolerance=0.50)
-                if True in matches:
-                    matched_index = matches.index(True)
-                    person_name = known_names[matched_index]
-                    current_time = datetime.now().timestamp()
-                    if current_time - last_alert_time > ALERT_COOLDOWN:
-                        alert_path = os.path.join(STATIC_DIR, f"alert_{person_name}_{timestamp}.jpg")
-                        cv2.imwrite(alert_path, frame)
-                        send_email_alert(alert_path, person_name)
-                        last_alert_time = current_time
-                        return jsonify({"status": "match", "person": person_name})
-                    else:
-                        return jsonify({"status": "match", "person": person_name, "cooldown": True})
-        except Exception as e:
-            print(f"Error during face_recognition flow: {e}")
+        if not known_encodings:
+            return jsonify({"status": "no_known_faces"}), 200
 
-    # Fallback: imagehash perceptual hash comparison (lightweight)
-    if IMAGEHASH_AVAILABLE and known_files:
-        try:
-            from PIL import Image
-            import imagehash
-            h_target = imagehash.phash(Image.open(temp_path))
-            for idx, kpath in enumerate(known_files):
-                try:
-                    h_known = imagehash.phash(Image.open(kpath))
-                    d = int(h_target - h_known)
-                    # small hamming distance => likely same person/image
-                    if d <= 10:
-                        person_name = known_names[idx]
-                        current_time = datetime.now().timestamp()
-                        if current_time - last_alert_time > ALERT_COOLDOWN:
-                            alert_path = os.path.join(STATIC_DIR, f"alert_{person_name}_{timestamp}.jpg")
-                            cv2.imwrite(alert_path, frame)
-                            send_email_alert(alert_path, person_name)
-                            last_alert_time = current_time
-                            return jsonify({"status": "match", "person": person_name})
-                        else:
-                            return jsonify({"status": "match", "person": person_name, "cooldown": True})
-                except Exception as e:
-                    print(f"Could not phash compare with {kpath}: {e}")
-        except Exception as e:
-            print(f"imagehash fallback error: {e}")
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-    return jsonify({"status": "no_match"})
+        locations = face_recognition.face_locations(rgb)
+        if not locations:
+            return jsonify({"status": "no_face_detected"}), 200
 
-    return jsonify({"status": "no_match"})
+        encodings = face_recognition.face_encodings(rgb, locations)
+        if not encodings:
+            return jsonify({"status": "no_face_detected"}), 200
+
+        for enc in encodings:
+            matches = face_recognition.compare_faces(
+                known_encodings, enc, tolerance=0.50
+            )
+
+            if True in matches:
+                idx = matches.index(True)
+                name = known_names[idx]
+
+                now = datetime.now().timestamp()
+                if now - last_alert_time > ALERT_COOLDOWN:
+                    alert_path = os.path.join(
+                        STATIC_DIR, f"alert_{name}.jpg"
+                    )
+                    cv2.imwrite(alert_path, frame)
+                    send_email_alert(alert_path, name)
+                    last_alert_time = now
+
+                return jsonify({"status": "match", "person": name}), 200
+
+        return jsonify({"status": "no_match"}), 200
+
+    except Exception as e:
+        print("UPLOAD ERROR:", e)
+        return jsonify({"error": "server_error"}), 500
 
 @app.route("/register", methods=["POST"])
 def register_face():
