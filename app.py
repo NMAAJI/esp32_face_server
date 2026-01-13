@@ -6,27 +6,15 @@ import smtplib
 from email.message import EmailMessage
 from datetime import datetime
 
-# Optional heavy dependency: face_recognition (dlib). Try to import, else fall back.
+# Face recognition
 try:
     import face_recognition
     FACE_REC_AVAILABLE = True
-    print("✅ face_recognition available: using encodings matcher")
+    print("✅ face_recognition available")
 except Exception as e:
     face_recognition = None
     FACE_REC_AVAILABLE = False
-    print(f"⚠️ face_recognition not available: {e}")
-
-# Lightweight perceptual-hash verifier (optional)
-try:
-    from PIL import Image
-    import imagehash
-    IMAGEHASH_AVAILABLE = True
-    print("✅ imagehash available: using phash fallback")
-except Exception as e:
-    Image = None
-    imagehash = None
-    IMAGEHASH_AVAILABLE = False
-    print(f"⚠️ imagehash not available: {e}")
+    print("❌ face_recognition not available:", e)
 
 app = Flask(__name__, static_folder="static")
 
@@ -36,19 +24,15 @@ STATIC_DIR = "static"
 os.makedirs(KNOWN_DIR, exist_ok=True)
 os.makedirs(STATIC_DIR, exist_ok=True)
 
-# Load known faces
-
-# If face_recognition is available we store encodings, otherwise store file paths for phash fallback
+# Known faces memory
 known_encodings = []
 known_names = []
-known_files = []
 
 def load_known_faces():
     known_encodings.clear()
     known_names.clear()
 
     for fname in os.listdir(KNOWN_DIR):
-        # ✅ allow ONLY image files
         if not fname.lower().endswith((".jpg", ".jpeg", ".png")):
             continue
 
@@ -56,176 +40,185 @@ def load_known_faces():
 
         try:
             img = face_recognition.load_image_file(path)
-            encs = face_recognition.face_encodings(img)
+            encoding = face_recognition.face_encodings(img)
 
-            if encs:
-                known_encodings.append(encs[0])
+            if encoding:
+                known_encodings.append(encoding[0])
                 known_names.append(os.path.splitext(fname)[0])
-                print(f"✅ Loaded face: {fname}")
+                print("✅ Loaded:", fname)
             else:
-                print(f"⚠️ No face found in: {fname}")
-
+                print("❌ No faces found in:", fname)
         except Exception as e:
-            print(f"❌ Skipped file {fname}: {e}")
+            print("Error loading face from", fname, ":", e)
 
+# Load known faces at startup
 load_known_faces()
 
-# Email config from Railway env vars
-EMAIL_ADDRESS = os.environ.get("EMAIL_ADDRESS")
-EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD")
-RECEIVER_EMAIL = os.environ.get("RECEIVER_EMAIL")
-
-# Cooldown
+# Email alert settings
+EMAIL_ADDRESS = "your_email@gmail.com"
+EMAIL_PASSWORD = "your_password"
+ALERT_COOLDOWN = 10  # seconds
 last_alert_time = 0
-ALERT_COOLDOWN = 30
 
 def send_email_alert(image_path, person_name):
     try:
         msg = EmailMessage()
-        msg["Subject"] = f"🚨 ALERT: {person_name} Detected!"
+        msg["Subject"] = f"Alert: {person_name} detected"
         msg["From"] = EMAIL_ADDRESS
-        msg["To"] = RECEIVER_EMAIL
-        msg.set_content(f"{person_name} detected at {datetime.now()}")
+        msg["To"] = EMAIL_ADDRESS
 
-        with open(image_path, "rb") as f:
-            msg.add_attachment(f.read(), maintype="image", subtype="jpeg", filename=os.path.basename(image_path))
+        msg.set_content(f"Alert: {person_name} was detected by the system.")
+
+        with open(image_path, "rb") as img_file:
+            img_data = img_file.read()
+            img_name = os.path.basename(image_path)
+            msg.add_attachment(img_data, maintype="image", subtype="jpeg", filename=img_name)
 
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
             smtp.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
             smtp.send_message(msg)
 
-        print(f"📧 Email sent for {person_name}")
-        return True
+        print("✅ Alert email sent")
     except Exception as e:
-        print("❌ Email error:", e)
-        return False
+        print("Error sending email:", e)
 
 @app.route("/")
 def index():
-    faces = [f for f in os.listdir(KNOWN_DIR) if f.lower().endswith((".jpg", ".jpeg", ".png"))]
-    return render_template("index.html", faces=faces)
-
-@app.route("/known_faces/<path:filename>")
-def known_faces_file(filename):
-    return send_from_directory(KNOWN_DIR, filename)
+    return render_template("index.html")
 
 @app.route("/upload", methods=["POST"])
 def upload_image():
     global last_alert_time
 
     try:
-        img_bytes = request.data
-        if not img_bytes:
+        print("[UPLOAD] Request received")
+        print("[UPLOAD] Content-Type:", request.content_type)
+        print("[UPLOAD] request.data length:", len(request.data) if request.data else 0)
+        print("[UPLOAD] request.files:", list(request.files.keys()))
+
+        # 1️⃣ Read image safely
+        if request.data:
+            img_bytes = request.data
+            print("[UPLOAD] Using request.data")
+        elif "file" in request.files:
+            img_bytes = request.files["file"].read()
+            print("[UPLOAD] Using request.files['file']")
+        else:
+            print("[UPLOAD] No image found in request")
             return jsonify({"error": "empty_image"}), 400
 
+        # 2️⃣ Decode image
         npimg = np.frombuffer(img_bytes, np.uint8)
         frame = cv2.imdecode(npimg, cv2.IMREAD_COLOR)
+        print("[UPLOAD] Decoded frame:", "OK" if frame is not None else "None")
 
         if frame is None:
+            print("[UPLOAD] Invalid image data")
             return jsonify({"error": "invalid_image"}), 400
 
-        # Save latest frame (for UI)
-        latest_path = os.path.join(STATIC_DIR, "latest.jpg")
-        cv2.imwrite(latest_path, frame)
+        # 3️⃣ Save for UI
+        cv2.imwrite(os.path.join(STATIC_DIR, "latest.jpg"), frame)
+        print("[UPLOAD] Saved latest.jpg")
 
         if not known_encodings:
+            print("[UPLOAD] No known faces loaded")
             return jsonify({"status": "no_known_faces"}), 200
 
-        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        if not FACE_REC_AVAILABLE:
+            print("[UPLOAD] face_recognition not available")
+            return jsonify({"error": "face_recognition_not_available"}), 500
 
-        locations = face_recognition.face_locations(rgb)
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        locations = face_recognition.face_locations(rgb, model="hog")
+        print(f"[UPLOAD] Found {len(locations)} face locations")
         if not locations:
             return jsonify({"status": "no_face_detected"}), 200
 
         encodings = face_recognition.face_encodings(rgb, locations)
-        if not encodings:
-            return jsonify({"status": "no_face_detected"}), 200
+        print(f"[UPLOAD] Found {len(encodings)} encodings")
 
         for enc in encodings:
             matches = face_recognition.compare_faces(
-                known_encodings, enc, tolerance=0.50
+                known_encodings, enc, tolerance=0.5
             )
+            print(f"[UPLOAD] Matches: {matches}")
 
             if True in matches:
-                idx = matches.index(True)
-                name = known_names[idx]
-
+                name = known_names[matches.index(True)]
                 now = datetime.now().timestamp()
                 if now - last_alert_time > ALERT_COOLDOWN:
-                    alert_path = os.path.join(
-                        STATIC_DIR, f"alert_{name}.jpg"
-                    )
+                    alert_path = os.path.join(STATIC_DIR, f"alert_{name}.jpg")
                     cv2.imwrite(alert_path, frame)
                     send_email_alert(alert_path, name)
                     last_alert_time = now
-
+                print(f"[UPLOAD] Match found: {name}")
                 return jsonify({"status": "match", "person": name}), 200
 
+        print("[UPLOAD] No match found")
         return jsonify({"status": "no_match"}), 200
 
     except Exception as e:
         print("UPLOAD ERROR:", e)
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": "server_error", "details": str(e)}), 500
+
+@app.route("/known_faces")
+def known_faces():
+    try:
+        faces = [{"name": name, "image": f"/{KNOWN_DIR}/{name}.jpg"} for name in known_names]
+        return jsonify(faces), 200
+    except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-@app.route("/register", methods=["POST"])
-def register_face():
-    if 'image' not in request.files or 'name' not in request.form:
-        return jsonify({"error": "Missing data"}), 400
+@app.route("/add_face", methods=["POST"])
+def add_face():
+    try:
+        name = request.form.get("name")
+        if not name:
+            return jsonify({"error": "Name is required"}), 400
 
-    name = request.form['name'].strip()
-    file = request.files['image']
-    filename = f"{name}.jpg"
-    save_path = os.path.join(KNOWN_DIR, filename)
-    file.save(save_path)
+        image_file = request.files.get("file")
+        if not image_file:
+            return jsonify({"error": "Image file is required"}), 400
 
-    load_known_faces()
-    print(f"🟢 Registered face: {name}")
-    return redirect("/")
+        # Save the new face
+        image_path = os.path.join(KNOWN_DIR, f"{name}.jpg")
+        image_file.save(image_path)
+        print(f"✅ Face saved for {name}")
 
+        # Reload known faces
+        load_known_faces()
 
-@app.route("/upload_known", methods=["POST"])
-def upload_known():
-    # Simple uploader for known face images (accepts raw file upload under 'file')
-    if "file" not in request.files:
-        return "No file", 400
+        return jsonify({"status": "face_added", "person": name}), 201
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
-    file = request.files["file"]
-    if file.filename == "":
-        return "No filename", 400
+@app.route("/remove_face", methods=["POST"])
+def remove_face():
+    try:
+        name = request.form.get("name")
+        if not name:
+            return jsonify({"error": "Name is required"}), 400
 
-    if not file.filename.lower().endswith((".jpg", ".jpeg", ".png")):
-        return "Invalid image format", 400
+        # Remove the face file
+        image_path = os.path.join(KNOWN_DIR, f"{name}.jpg")
+        if os.path.exists(image_path):
+            os.remove(image_path)
+            print(f"✅ Face removed for {name}")
+        else:
+            print(f"❌ Face file not found for {name}")
 
-    save_path = os.path.join(KNOWN_DIR, file.filename)
-    file.save(save_path)
+        # Reload known faces
+        load_known_faces()
 
-    # Refresh in-memory known faces
-    load_known_faces()
+        return jsonify({"status": "face_removed", "person": name}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
-    return f"Known face {file.filename} uploaded successfully", 200
-
-@app.route("/delete/<filename>")
-def delete_face(filename):
-    path = os.path.join(KNOWN_DIR, filename)
-    if os.path.exists(path):
-        os.remove(path)
-        print("🗑️ Deleted:", filename)
-    load_known_faces()
-    return redirect("/")
-
-@app.route("/list_faces")
-def list_faces():
-    faces = []
-    for f in os.listdir(KNOWN_DIR):
-        if f.lower().endswith((".jpg", ".jpeg", ".png")):
-            faces.append(os.path.splitext(f)[0])
-
-    return jsonify({
-        "count": len(faces),
-        "faces": faces
-    })
+@app.route("/static/<path:path>")
+def send_static(path):
+    return send_from_directory(STATIC_DIR, path)
 
 if __name__ == "__main__":
-    import os
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+    app.run(debug=True, host="0.0.0.0", port=5000)
