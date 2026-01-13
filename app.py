@@ -192,6 +192,28 @@ def register_face():
     print(f"🟢 Registered face: {name}")
     return redirect("/")
 
+
+@app.route("/upload_known", methods=["POST"])
+def upload_known():
+    # Simple uploader for known face images (accepts raw file upload under 'file')
+    if "file" not in request.files:
+        return "No file", 400
+
+    file = request.files["file"]
+    if file.filename == "":
+        return "No filename", 400
+
+    if not file.filename.lower().endswith((".jpg", ".jpeg", ".png")):
+        return "Invalid image format", 400
+
+    save_path = os.path.join(KNOWN_DIR, file.filename)
+    file.save(save_path)
+
+    # Refresh in-memory known faces
+    load_known_faces()
+
+    return f"Known face {file.filename} uploaded successfully", 200
+
 @app.route("/delete/<filename>")
 def delete_face(filename):
     path = os.path.join(KNOWN_DIR, filename)
