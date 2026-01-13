@@ -32,4 +32,6 @@ ENV FLASK_ENV=production
 
 EXPOSE 5000
 
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "app:app"]
+# Use the shell form so `$PORT` (set by Railway) is expanded at container start.
+# Provide a default of 5000 when `PORT` is not set.
+CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:${PORT:-5000} app:app"]
