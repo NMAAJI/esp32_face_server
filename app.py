@@ -165,7 +165,7 @@ def upload_image():
 
     except Exception as e:
         print("UPLOAD ERROR:", e)
-        return jsonify({"error": "server_error"}), 500
+        return jsonify({"error": str(e)}), 500
 
 @app.route("/register", methods=["POST"])
 def register_face():
