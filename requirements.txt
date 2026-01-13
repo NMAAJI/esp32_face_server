@@ -2,6 +2,6 @@ flask
 numpy
 pillow
 opencv-python-headless
-face-recognition
+face_recognition
 gunicorn
 imagehash
