@@ -46,20 +46,27 @@ known_files = []
 def load_known_faces():
     known_encodings.clear()
     known_names.clear()
-    known_files.clear()
+
     for fname in os.listdir(KNOWN_DIR):
+        # ✅ allow ONLY image files
+        if not fname.lower().endswith((".jpg", ".jpeg", ".png")):
+            continue
+
         path = os.path.join(KNOWN_DIR, fname)
-        name = os.path.splitext(fname)[0]
-        known_names.append(name)
-        known_files.append(path)
-        if FACE_REC_AVAILABLE:
-            try:
-                img = face_recognition.load_image_file(path)
-                encs = face_recognition.face_encodings(img)
-                if encs:
-                    known_encodings.append(encs[0])
-            except Exception as e:
-                print(f"Could not encode known face {fname}: {e}")
+
+        try:
+            img = face_recognition.load_image_file(path)
+            encs = face_recognition.face_encodings(img)
+
+            if encs:
+                known_encodings.append(encs[0])
+                known_names.append(os.path.splitext(fname)[0])
+                print(f"✅ Loaded face: {fname}")
+            else:
+                print(f"⚠️ No face found in: {fname}")
+
+        except Exception as e:
+            print(f"❌ Skipped file {fname}: {e}")
 
 load_known_faces()
 
