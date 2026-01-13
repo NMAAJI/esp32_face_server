@@ -215,8 +215,15 @@ def delete_face(filename):
 
 @app.route("/list_faces")
 def list_faces():
-    faces = [os.path.splitext(f)[0] for f in os.listdir(KNOWN_DIR)]
-    return jsonify({"count": len(faces), "faces": faces})
+    faces = []
+    for f in os.listdir(KNOWN_DIR):
+        if f.lower().endswith((".jpg", ".jpeg", ".png")):
+            faces.append(os.path.splitext(f)[0])
+
+    return jsonify({
+        "count": len(faces),
+        "faces": faces
+    })
 
 if __name__ == "__main__":
     import os
